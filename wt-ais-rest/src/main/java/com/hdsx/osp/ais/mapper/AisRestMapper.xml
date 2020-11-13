@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "/xsd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hdsx.osp.ais.mapper.AisRestMapper">
+
+    <select id="existTable" resultType="int" parameterType="map">
+        select count(*) num from pg_class where relname = #{tablename}
+    </select>
+
+    <select id="getAisInfo" resultType="map">
+        select
+        mmsi,type,forward,navistat,rot,sog,posacur,longitude,latitude,cog,thead,utctime,indicator,raim,devicemark,dispmark,dscmark,
+        bandmark,msg22mark,patternmark,gnss,ver,imo,callno,shipname,shipandcargtype,length,width,devicetype,eta,draft,dest,dte
+        from
+        ais_base
+        where
+        to_char(updatetime,'YYYY-MM-DD HH24:MI:SS') = #{time}
+        and st_within(geom,st_setsrid(st_geomfromtext(#{wktstr}),4326)) = true
+    </select>
+
+    <select id="getAisByMMSI" resultType="map">
+        select
+        mmsi,type,forward,navistat,rot,sog,posacur,longitude,latitude,cog,thead,utctime,indicator,raim,devicemark,dispmark,dscmark,
+        bandmark,msg22mark,patternmark,gnss,ver,imo,callno,shipname,shipandcargtype,length,width,devicetype,eta,draft,dest,dte
+        from
+        ais_base
+        <where>
+            <if test="mmsi != null and mmsi != ''">
+                mmsi = #{mmsi}
+            </if>
+        </where>
+    </select>
+
+    <select id="getAisTrail" resultType="map">
+        select jae.jsonval from (select jsonb_array_elements(jsondata) jsonval from ais_trail where
+        to_char(datatime,'YYYY-MM-DD') =
+        #{datatime}) jae
+        <if test="time != null and time != ''">
+            where jsonval->>'datetimestr' = #{time}
+        </if>
+    </select>
+
+    <select id="getAisTrailPoint" resultType="map">
+        select jae.jsonval->>'longitude' as lon,jae.jsonval->>'latitude' as lat,jae.jsonval->>'length' as len
+        from (select jsonb_array_elements(jsondata) jsonval from ${tablename}) jae
+        <if test="time != null and time != ''">
+            where jsonval->>'datetimestr' = #{time}
+        </if>
+    </select>
+
+    <insert id="insertData">
+        insert into ais_heatmap (datetime,geom,geomwithrisk) values (#{datetime},st_setsrid(#{geomstr}::geometry,4326),st_setsrid(#{geomwithriskstr}::geometry,4326))
+    </insert>
+
+    <select id="getAisRiskData" resultType="map">
+        select jae.jsonval from (select jsonb_array_elements(jsondata) jsonval from ais_grid_relation where
+        to_char(datatime,'YYYY-MM-DD') =
+        #{datatime} and gridlevel = #{gridlevel}) jae
+        <if test="time != null and time != ''">
+            where jsonval->>'date' = #{time}
+        </if>
+    </select>
+
+    <select id="getGridData" resultType="map">
+        select gid,(st_area(st_transform(geom,'+proj=longlat +datum=WGS84 +no_defs','+proj=aea +lat_1=25 +lat_2=47
+        +lon_0=105 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'))/1000000) as area,st_astext(geom) as wktstr from
+        ${tablename}
+    </select>
+
+    <select id="getAisGridRelationData" resultType="map">
+        SELECT A.mmsi,A.length,B.gid,B.prefecture,(st_area(st_transform(B.geom,'+proj=longlat +datum=WGS84 +no_defs','+proj=aea +lat_1=25 +lat_2=47
+        +lon_0=105 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'))/1000000) as area from AIS_BASE_TEMP A LEFT JOIN
+        ${tablename} B ON st_contains(B.geom, A.geom)=TRUE
+    </select>
+
+    <select id="getHistoryHeayMapData" resultType="map">
+        with tt as
+        (select width_bucket(st_x(st_point(to_number(jae.jsonval->>'longitude','999.9999999'),
+        to_number(jae.jsonval->>'latitude','99.99999999'))),111.325, 124.269, 100) grid_x,width_bucket(st_y(st_point(to_number(jae.jsonval->>'longitude','999.9999999'),
+        to_number(jae.jsonval->>'latitude','99.99999999'))), 20.268, 39.114, 100) grid_y,st_point(to_number(jae.jsonval->>'longitude','999.9999999'),
+        to_number(jae.jsonval->>'latitude','99.99999999')) geom
+        from (select jsonb_array_elements(jsondata) jsonval
+        from ais_trail where to_char(datatime,'YYYY-MM-DD') =#{datetime})
+        jae where jsonval->>'datetimestr' = #{timestr})
+        select st_astext(st_centroid(st_collect(geom))) geom from tt GROUP BY tt.grid_x,grid_y
+    </select>
+
+    <sql id="truncateAisBaseTempSQL">
+        TRUNCATE TABLE AIS_BASE_TEMP
+    </sql>
+    <delete id="truncateAisBaseTemp">
+        <!--删除数据-->
+        <include refid="truncateAisBaseTempSQL"></include>
+    </delete>
+
+    <sql id="truncateAisTrailTempSQL">
+        TRUNCATE TABLE AIS_TRAIL_TEMP
+    </sql>
+    <delete id="truncateAisTrailTemp">
+        <!--删除数据-->
+        <include refid="truncateAisTrailTempSQL"></include>
+    </delete>
+
+    <sql id="truncateAisRelationTempSQL">
+        TRUNCATE TABLE AIS_GRID_RELATION_TEMP
+    </sql>
+    <delete id="truncateAisRelationTemp">
+        <!--删除数据-->
+        <include refid="truncateAisRelationTempSQL"></include>
+    </delete>
+
+    <update id="updateAISBaseFromTempTable">
+        INSERT INTO AIS_BASE AS T1
+        select * from AIS_BASE_TEMP AS T2 ON conflict(ID) DO
+        UPDATE
+        SET type = coalesce(excluded.type,T1.type)
+        ,forward = coalesce(excluded.forward,T1.forward)
+        ,navistat = coalesce(excluded.navistat,T1.navistat)
+        ,rot = coalesce(excluded.rot,T1.rot)
+        ,sog = coalesce(excluded.sog,T1.sog)
+        ,posacur = coalesce(excluded.posacur,T1.posacur)
+        ,longitude = coalesce(excluded.longitude,T1.longitude)
+        ,latitude = coalesce(excluded.latitude,T1.latitude)
+        ,cog = coalesce(excluded.cog,T1.cog)
+        ,thead = coalesce(excluded.thead,T1.thead)
+        ,utctime = coalesce(excluded.utctime,T1.utctime)
+        ,indicator = coalesce(excluded.indicator,T1.indicator)
+        ,raim = coalesce(excluded.raim,T1.raim)
+        ,devicemark = coalesce(excluded.devicemark,T1.devicemark)
+        ,dispmark = coalesce(excluded.dispmark,T1.dispmark)
+        ,dscmark = coalesce(excluded.dscmark,T1.dscmark)
+        ,bandmark = coalesce(excluded.bandmark,T1.bandmark)
+        ,msg22mark = coalesce(excluded.msg22mark,T1.msg22mark)
+        ,patternmark = coalesce(excluded.patternmark,T1.patternmark)
+        ,gnss = coalesce(excluded.gnss,T1.gnss)
+        ,ver = coalesce(excluded.ver,T1.ver)
+        ,imo = coalesce(excluded.imo,T1.imo)
+        ,callno = coalesce(excluded.callno,T1.callno)
+        ,shipname = coalesce(excluded.shipname,T1.shipname)
+        ,shipAndCargType = coalesce(excluded.shipAndCargType,T1.shipAndCargType)
+        ,length = coalesce(excluded.length,T1.length)
+        ,width = coalesce(excluded.width,T1.width)
+        ,devicetype = coalesce(excluded.devicetype,T1.devicetype)
+        ,eta = coalesce(excluded.eta,T1.eta)
+        ,draft = coalesce(excluded.draft,T1.draft)
+        ,dest = coalesce(excluded.dest,T1.dest)
+        ,dte = coalesce(excluded.dte,T1.dte)
+        ,GEOM = coalesce(excluded.GEOM,T1.GEOM)
+        ,receivetime = excluded.receivetime
+        ,updatetime = excluded.updatetime
+    </update>
+
+    <update id="updateAISTrailFromTempTable">
+        INSERT INTO AIS_TRAIL AS T1
+        select * from AIS_TRAIL_TEMP AS T2 ON conflict(ID,datatime) DO
+        UPDATE
+        SET jsondata = t1.jsondata || excluded.jsondata
+        ,GEOM = coalesce(excluded.GEOM,T1.GEOM)
+        ,datatime = excluded.datatime
+    </update>
+
+    <update id="updateAISRelationFromTempTable">
+        INSERT INTO AIS_GRID_RELATION AS T1
+        select * from AIS_GRID_RELATION_TEMP AS T2 ON conflict(datatime, gridlevel) DO
+        UPDATE
+        SET datatime = excluded.datatime
+        ,jsondata = t1.jsondata || excluded.jsondata
+        ,gridlevel = coalesce(excluded.gridlevel,T1.gridlevel)
+    </update>
+
+    <update id="createTrailPartitionTable">
+        CREATE TABLE ${tablename} PARTITION OF public.ais_trail
+        FOR VALUES FROM ('${begin}') TO ('${end}');
+    </update>
+</mapper>

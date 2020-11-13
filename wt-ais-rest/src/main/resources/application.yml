@@ -1,0 +1,62 @@
+server:
+  port: 8098
+  servlet:
+    context-path: /ais
+  tomcat:
+    max-http-post-size: 4048576
+  max-http-header-size: 4048576
+
+spring:
+  profiles:
+    active: dev
+  #热部署
+  devtools:
+    restart:
+      enabled: true
+      #设置重启的目录
+      additional-paths: src/main/java
+  datasource:
+    type: com.zaxxer.hikari.HikariDataSource
+    hikari:
+      minimum-idle: 10
+      maximum-pool-size: 25
+      auto-commit: true
+      idle-timeout: 30000
+      pool-name: ExpendHikariCP
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 550MB
+mybatis:
+  mapper-locations: classpath:com/hdsx/osp/ais/mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+logging:
+  config: classpath:logback-spring.xml
+task:
+  #每个整点执行一次
+  cron: "0 0 * * * ?"
+  #0:不启用定时任务，1：启动定时任务
+  status: 0
+  #存储ais写出的json文件和csv文件的路径
+  filepath: D:/aisdata/
+  #数据库ip
+  ip: 10.10.15.183
+  #数据库名称
+  #dbname: sz-wt
+  dbname: sz-ais
+  #数据库用户名
+  username: postgres
+  #数据库密码
+  password: 123456
+  #httpclienturl
+  httpclienturl: http://127.0.0.1:8000/ais003/areaRealtimeSite
+  #apikey
+  apikey: 4kXcTrVVDeFAs5ILQNb1mW4CJgU1WJjN
+  #lb--->全国范围:111.325,20.268
+  lb: 114.516,22.366
+  #rt--->全国范围:124.269,39.114
+  rt: 114.648,22.448
